@@ -1,5 +1,4 @@
 import streamlit as st
-from ai_engine import ai_risk_analysis
 import pandas as pd
 import random
 from database import Session, Shipment
