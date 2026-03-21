@@ -3,10 +3,13 @@ import pandas as pd
 import random
 import os
 from datetime import datetime
-from database import Session, Shipment
+from database import Session, Shipment, init_db
 from sklearn.ensemble import IsolationForest
 
 st.set_page_config(page_title="Smart Risk Scanner", layout="wide")
+
+# INIT DATABASE
+init_db()
 
 # ==============================
 # LOGIN
@@ -178,7 +181,6 @@ if search:
         } for d in data])
 
         st.dataframe(df_track)
-
     else:
         st.warning("No data found")
 

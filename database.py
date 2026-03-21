@@ -1,31 +1,45 @@
 from sqlalchemy import create_engine, Column, String, Integer
 from sqlalchemy.orm import declarative_base, sessionmaker
 
-engine = create_engine('sqlite:///risk.db', connect_args={"check_same_thread": False})
+# ==============================
+# DATABASE SETUP
+# ==============================
+engine = create_engine(
+    'sqlite:///risk.db',
+    connect_args={"check_same_thread": False}
+)
+
 Base = declarative_base()
 
+# ==============================
+# TABLE
+# ==============================
 class Shipment(Base):
     __tablename__ = "shipments"
 
     id = Column(Integer, primary_key=True)
 
-    # Basic info
+    # BASIC INFO
     country = Column(String)
     company = Column(String)
     route = Column(String)
 
-    # Shipment data
+    # SHIPMENT DATA
     weight = Column(Integer)
     hour = Column(Integer)
 
-    # Risk
+    # RISK
     risk_score = Column(Integer)
 
-    # Tracking
+    # TRACKING SYSTEM
     vehicle_id = Column(String)   # registreringsnummer
     notes = Column(String)        # anteckningar
-    timestamp = Column(String)    # tid
+    timestamp = Column(String)    # datum/tid
 
-Base.metadata.create_all(engine)
+# ==============================
+# CREATE DATABASE (SAFE VERSION)
+# ==============================
+def init_db():
+    Base.metadata.create_all(engine)
 
 Session = sessionmaker(bind=engine)
