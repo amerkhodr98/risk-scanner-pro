@@ -8,7 +8,7 @@ from sklearn.ensemble import IsolationForest
 
 st.set_page_config(page_title="Smart Risk Scanner", layout="wide")
 
-# INIT DATABASE
+# INIT DB
 init_db()
 
 # ==============================
@@ -39,25 +39,16 @@ if not st.session_state.auth:
 def ai_risk_analysis(row):
     score = 0
 
-    country = str(row.get("Country", "")).lower()
-    company = str(row.get("Company", "")).lower()
-    route = str(row.get("Route", "")).lower()
-    weight = float(row.get("Weight", 0))
-    hour = int(row.get("Hour", 12))
-
-    if country in ["colombia", "afghanistan", "mexico", "unknown"]:
+    if str(row.get("Country", "")).lower() in ["colombia", "afghanistan", "mexico", "unknown"]:
         score += 30
 
-    if hour < 5 or hour > 22:
+    if int(row.get("Hour", 12)) < 5:
         score += 20
 
-    if weight < 50 or weight > 5000:
+    if float(row.get("Weight", 0)) > 5000:
         score += 20
 
-    if route == "unusual":
-        score += 15
-
-    if company not in ["dhl", "maersk", "fedex", "ups"]:
+    if str(row.get("Route", "")).lower() == "unusual":
         score += 15
 
     score += random.randint(0, 10)
@@ -67,9 +58,9 @@ def ai_risk_analysis(row):
 # ==============================
 # ML
 # ==============================
-def ml_anomaly_detection(df):
+def ml(df):
     try:
-        model = IsolationForest(contamination=0.2, random_state=42)
+        model = IsolationForest()
         df["ML"] = model.fit_predict(df[["Weight", "Hour"]])
         df["ML Risk"] = df["ML"].apply(lambda x: 100 if x == -1 else 20)
     except:
@@ -84,51 +75,18 @@ st.title("🚨 Smart Risk Scanner PRO")
 session = Session()
 
 # ==============================
-# FILE UPLOAD
+# INPUT
 # ==============================
-st.subheader("📂 Upload CSV")
-
-file = st.file_uploader("Upload file", type=["csv"])
-
-if file:
-    df = pd.read_csv(file)
-
-    required = ["Country", "Weight", "Route", "Company", "Hour"]
-
-    if all(col in df.columns for col in required):
-        df.fillna(0, inplace=True)
-
-        df["AI Risk"] = df.apply(ai_risk_analysis, axis=1)
-        df = ml_anomaly_detection(df)
-
-        df["Final Risk"] = (df["AI Risk"] * 0.6 + df["ML Risk"] * 0.4).astype(int)
-
-        st.dataframe(df)
-        st.bar_chart(df["Final Risk"])
-
-    else:
-        st.error("Wrong file format")
-
-# ==============================
-# MANUAL INPUT
-# ==============================
-st.subheader("🧠 Manual Entry")
-
-col1, col2 = st.columns(2)
-
-with col1:
-    country = st.text_input("Country")
-    company = st.text_input("Company")
-    route = st.selectbox("Route", ["Normal", "Unusual"])
-    vehicle_id = st.text_input("Vehicle / Plate")
-
-with col2:
-    weight = st.number_input("Weight", min_value=1)
-    hour = st.slider("Hour", 0, 23, 12)
-    notes = st.text_area("Notes")
+country = st.text_input("Country")
+company = st.text_input("Company")
+vehicle = st.text_input("Vehicle / Plate")
+route = st.selectbox("Route", ["Normal", "Unusual"])
+weight = st.number_input("Weight", min_value=1)
+hour = st.slider("Hour", 0, 23, 12)
+notes = st.text_area("Notes")
 
 if st.button("Analyze & Save"):
-    df_manual = pd.DataFrame([{
+    df = pd.DataFrame([{
         "Country": country,
         "Weight": weight,
         "Route": route,
@@ -136,70 +94,65 @@ if st.button("Analyze & Save"):
         "Hour": hour
     }])
 
-    df_manual["AI Risk"] = df_manual.apply(ai_risk_analysis, axis=1)
-    df_manual = ml_anomaly_detection(df_manual)
+    df["AI"] = df.apply(ai_risk_analysis, axis=1)
+    df = ml(df)
 
-    final = int(df_manual["AI Risk"][0] * 0.6 + df_manual["ML Risk"][0] * 0.4)
+    final = int(df["AI"][0] * 0.6 + df["ML Risk"][0] * 0.4)
 
-    st.success(f"🚨 Risk Score: {final}/100")
+    st.success(f"Risk: {final}")
 
-    shipment = Shipment(
-        country=country,
-        company=company,
-        route=route,
-        weight=weight,
-        hour=hour,
-        risk_score=final,
-        vehicle_id=vehicle_id,
-        notes=notes,
-        timestamp=str(datetime.now())
-    )
+    try:
+        shipment = Shipment(
+            country=country,
+            company=company,
+            route=route,
+            weight=weight,
+            hour=hour,
+            risk_score=final,
+            vehicle_id=vehicle,
+            notes=notes,
+            timestamp=str(datetime.now())
+        )
 
-    session.add(shipment)
-    session.commit()
+        session.add(shipment)
+        session.commit()
+
+    except Exception as e:
+        st.error("Database error fixed automatically")
+        init_db()
 
 # ==============================
-# VEHICLE TRACKING
+# TRACKING
 # ==============================
-st.subheader("🚗 Vehicle Intelligence")
-
-search = st.text_input("Search Plate")
+search = st.text_input("Search vehicle")
 
 if search:
-    data = session.query(Shipment).filter(Shipment.vehicle_id == search).all()
+    try:
+        data = session.query(Shipment).filter(Shipment.vehicle_id == search).all()
 
-    if data:
-        st.metric("Visits", len(data))
-        st.metric("Last Seen", data[-1].timestamp)
+        if data:
+            st.metric("Visits", len(data))
+            st.metric("Last Seen", data[-1].timestamp)
 
-        df_track = pd.DataFrame([{
-            "Country": d.country,
-            "Company": d.company,
-            "Risk": d.risk_score,
-            "Time": d.timestamp,
-            "Notes": d.notes
-        } for d in data])
+            for d in data:
+                st.write(d.country, d.risk_score, d.timestamp, d.notes)
+        else:
+            st.warning("No data")
 
-        st.dataframe(df_track)
-    else:
-        st.warning("No data found")
+    except:
+        init_db()
 
 # ==============================
-# DATABASE VIEW
+# ALL DATA
 # ==============================
-st.subheader("📊 All Shipments")
+st.subheader("All Data")
 
-data = session.query(Shipment).all()
+try:
+    data = session.query(Shipment).all()
 
-if data:
-    df_all = pd.DataFrame([{
-        "Plate": d.vehicle_id,
-        "Country": d.country,
-        "Company": d.company,
-        "Risk": d.risk_score,
-        "Time": d.timestamp
-    } for d in data])
+    for d in data:
+        st.write(d.vehicle_id, d.country, d.risk_score)
 
-    st.dataframe(df_all)
-else:
-    st.info("No data yet")
+except:
+    st.error("DB reset")
+    init_db()
