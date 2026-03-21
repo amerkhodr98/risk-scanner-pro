@@ -2,13 +2,14 @@ import streamlit as st
 import pandas as pd
 import random
 import os
+from datetime import datetime
 from database import Session, Shipment
 from sklearn.ensemble import IsolationForest
 
 st.set_page_config(page_title="Smart Risk Scanner", layout="wide")
 
 # ==============================
-# LOGIN (WORKING VERSION)
+# LOGIN
 # ==============================
 PASSWORD = os.getenv("APP_PASSWORD", "admin123")
 
@@ -30,7 +31,7 @@ if not st.session_state.auth:
     st.stop()
 
 # ==============================
-# AI ENGINE
+# AI
 # ==============================
 def ai_risk_analysis(row):
     score = 0
@@ -61,7 +62,7 @@ def ai_risk_analysis(row):
     return min(score, 100)
 
 # ==============================
-# ML ENGINE
+# ML
 # ==============================
 def ml_anomaly_detection(df):
     try:
@@ -73,19 +74,18 @@ def ml_anomaly_detection(df):
     return df
 
 # ==============================
-# MAIN UI
+# MAIN
 # ==============================
 st.title("🚨 Smart Risk Scanner PRO")
-st.markdown("AI + ML shipment analysis system")
 
 session = Session()
 
 # ==============================
 # FILE UPLOAD
 # ==============================
-st.subheader("📂 Upload Shipment File")
+st.subheader("📂 Upload CSV")
 
-file = st.file_uploader("Upload CSV", type=["csv"])
+file = st.file_uploader("Upload file", type=["csv"])
 
 if file:
     df = pd.read_csv(file)
@@ -100,21 +100,8 @@ if file:
 
         df["Final Risk"] = (df["AI Risk"] * 0.6 + df["ML Risk"] * 0.4).astype(int)
 
-        st.success("Analysis done")
-
-        col1, col2, col3 = st.columns(3)
-        col1.metric("Total", len(df))
-        col2.metric("High Risk", (df["Final Risk"] > 70).sum())
-        col3.metric("Average", int(df["Final Risk"].mean()))
-
-        threshold = st.slider("Filter Risk", 0, 100, 50)
-        df_filtered = df[df["Final Risk"] >= threshold]
-
-        st.dataframe(df_filtered, use_container_width=True)
-        st.bar_chart(df_filtered["Final Risk"])
-
-        csv = df_filtered.to_csv(index=False).encode()
-        st.download_button("Download CSV", csv, "results.csv")
+        st.dataframe(df)
+        st.bar_chart(df["Final Risk"])
 
     else:
         st.error("Wrong file format")
@@ -122,7 +109,7 @@ if file:
 # ==============================
 # MANUAL INPUT
 # ==============================
-st.subheader("🧠 Manual Input")
+st.subheader("🧠 Manual Entry")
 
 col1, col2 = st.columns(2)
 
@@ -130,13 +117,15 @@ with col1:
     country = st.text_input("Country")
     company = st.text_input("Company")
     route = st.selectbox("Route", ["Normal", "Unusual"])
+    vehicle_id = st.text_input("Vehicle / Plate")
 
 with col2:
     weight = st.number_input("Weight", min_value=1)
     hour = st.slider("Hour", 0, 23, 12)
+    notes = st.text_area("Notes")
 
 if st.button("Analyze & Save"):
-    data = pd.DataFrame([{
+    df_manual = pd.DataFrame([{
         "Country": country,
         "Weight": weight,
         "Route": route,
@@ -144,46 +133,71 @@ if st.button("Analyze & Save"):
         "Hour": hour
     }])
 
-    data["AI Risk"] = data.apply(ai_risk_analysis, axis=1)
-    data = ml_anomaly_detection(data)
+    df_manual["AI Risk"] = df_manual.apply(ai_risk_analysis, axis=1)
+    df_manual = ml_anomaly_detection(df_manual)
 
-    final = int(data["AI Risk"][0] * 0.6 + data["ML Risk"][0] * 0.4)
+    final = int(df_manual["AI Risk"][0] * 0.6 + df_manual["ML Risk"][0] * 0.4)
 
-    st.success(f"Risk Score: {final}/100")
+    st.success(f"🚨 Risk Score: {final}/100")
 
     shipment = Shipment(
         country=country,
-        weight=weight,
-        route=route,
         company=company,
-        risk_score=final
+        route=route,
+        weight=weight,
+        hour=hour,
+        risk_score=final,
+        vehicle_id=vehicle_id,
+        notes=notes,
+        timestamp=str(datetime.now())
     )
 
     session.add(shipment)
     session.commit()
 
 # ==============================
+# VEHICLE TRACKING
+# ==============================
+st.subheader("🚗 Vehicle Intelligence")
+
+search = st.text_input("Search Plate")
+
+if search:
+    data = session.query(Shipment).filter(Shipment.vehicle_id == search).all()
+
+    if data:
+        st.metric("Visits", len(data))
+        st.metric("Last Seen", data[-1].timestamp)
+
+        df_track = pd.DataFrame([{
+            "Country": d.country,
+            "Company": d.company,
+            "Risk": d.risk_score,
+            "Time": d.timestamp,
+            "Notes": d.notes
+        } for d in data])
+
+        st.dataframe(df_track)
+
+    else:
+        st.warning("No data found")
+
+# ==============================
 # DATABASE VIEW
 # ==============================
-st.subheader("📊 Stored Data")
+st.subheader("📊 All Shipments")
 
 data = session.query(Shipment).all()
 
 if data:
-    df_db = pd.DataFrame([{
+    df_all = pd.DataFrame([{
+        "Plate": d.vehicle_id,
         "Country": d.country,
-        "Weight": d.weight,
-        "Route": d.route,
         "Company": d.company,
-        "Risk": d.risk_score
+        "Risk": d.risk_score,
+        "Time": d.timestamp
     } for d in data])
 
-    search = st.text_input("Search")
-
-    if search:
-        df_db = df_db[df_db.apply(lambda x: search.lower() in str(x).lower(), axis=1)]
-
-    st.dataframe(df_db, use_container_width=True)
+    st.dataframe(df_all)
 else:
     st.info("No data yet")
-
